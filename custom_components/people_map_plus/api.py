@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 import math
+from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from aiohttp import ClientTimeout, web
 from homeassistant.components.http import HomeAssistantView
@@ -361,6 +362,63 @@ class PeopleMapPlusTracksView(HomeAssistantView):
         )
 
 
+class PeopleMapPlusPhotoProxyView(HomeAssistantView):
+    """Serve indexed photo files via authenticated integration endpoint."""
+
+    url = "/api/people_map_plus/photo_proxy"
+    name = "api:people_map_plus:photo_proxy"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.StreamResponse:
+        raw_path = str(request.query.get("path", "")).strip()
+        if not raw_path:
+            return web.json_response(
+                {
+                    "success": False,
+                    "status": "invalid_path",
+                    "message": "Query param 'path' is required.",
+                },
+                status=400,
+            )
+
+        normalized = unquote(raw_path).replace("\\", "/").strip("/")
+        if not normalized:
+            return web.json_response(
+                {
+                    "success": False,
+                    "status": "invalid_path",
+                    "message": "Invalid path.",
+                },
+                status=400,
+            )
+
+        media_root = Path("/media").resolve()
+        target = (media_root / normalized).resolve()
+        try:
+            target.relative_to(media_root)
+        except ValueError:
+            return web.json_response(
+                {
+                    "success": False,
+                    "status": "invalid_path",
+                    "message": "Path escapes media root.",
+                },
+                status=400,
+            )
+
+        if not target.exists() or not target.is_file():
+            return web.json_response(
+                {
+                    "success": False,
+                    "status": "not_found",
+                    "message": "File not found.",
+                },
+                status=404,
+            )
+
+        return web.FileResponse(path=target)
+
+
 def _get_primary_entry_runtime(hass: Any) -> tuple[Any | None, Any | None]:
     entries = hass.config_entries.async_entries(DOMAIN)
     if not entries:
@@ -415,7 +473,7 @@ def _to_media_local_url(media_rel_path: Any) -> str | None:
     normalized = media_rel_path.strip().replace("\\", "/").strip("/")
     if not normalized:
         return None
-    return f"/media/local/{quote(normalized, safe='/')}"
+    return f"/api/people_map_plus/photo_proxy?path={quote(normalized, safe='/')}"
 
 
 def _to_bool(value: Any, fallback: bool) -> bool:

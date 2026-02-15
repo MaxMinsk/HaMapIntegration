@@ -12,6 +12,7 @@ Custom Home Assistant integration for People Map Plus.
    - `GET /api/people_map_plus/status`
    - `GET /api/people_map_plus/photos`
    - `GET /api/people_map_plus/tracks`
+   - `GET /api/people_map_plus/photo_proxy?path=...`
 
 ## Install (HACS Custom Repository)
 

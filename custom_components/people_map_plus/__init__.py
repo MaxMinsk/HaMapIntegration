@@ -11,6 +11,7 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, ServiceCall
 
 from .api import (
+    PeopleMapPlusPhotoProxyView,
     PeopleMapPlusPhotosView,
     PeopleMapPlusStatusView,
     PeopleMapPlusTracksView,
@@ -45,6 +46,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     hass.http.register_view(PeopleMapPlusStatusView())
     hass.http.register_view(PeopleMapPlusPhotosView())
     hass.http.register_view(PeopleMapPlusTracksView())
+    hass.http.register_view(PeopleMapPlusPhotoProxyView())
 
     if not hass.services.has_service(DOMAIN, SCAN_SERVICE):
         async def _handle_scan_now(service_call: ServiceCall) -> None:
