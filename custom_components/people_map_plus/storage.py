@@ -75,7 +75,7 @@ class PhotoIndexRepository:
         root_prefixes: list[str],
         from_utc: str,
         to_utc: str,
-        limit: int,
+        limit: int | None,
         with_gps_only: bool,
     ) -> list[dict[str, Any]]:
         """Query recent indexed photos."""
@@ -292,7 +292,7 @@ class PhotoIndexRepository:
         root_prefixes: list[str],
         from_utc: str,
         to_utc: str,
-        limit: int,
+        limit: int | None,
         with_gps_only: bool,
     ) -> list[dict[str, Any]]:
         base_query = """
@@ -324,9 +324,13 @@ class PhotoIndexRepository:
             base_query += " AND has_gps = 1 "
 
         query, root_params = _build_roots_filter_query(base_query, root_prefixes)
-        query += " ORDER BY captured_at_utc DESC LIMIT ?"
+        query += " ORDER BY captured_at_utc DESC"
+        params_list: list[Any] = [from_utc, to_utc, *root_params]
+        if limit is not None:
+            query += " LIMIT ?"
+            params_list.append(limit)
 
-        params: tuple[Any, ...] = (from_utc, to_utc, *root_params, limit)
+        params: tuple[Any, ...] = tuple(params_list)
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(query, params).fetchall()

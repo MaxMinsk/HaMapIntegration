@@ -55,7 +55,7 @@ def _options_schema(user_input: dict[str, Any] | None = None) -> vol.Schema:
             vol.Required(
                 CONF_DEFAULT_PHOTO_LIMIT,
                 default=current.get(CONF_DEFAULT_PHOTO_LIMIT, DEFAULT_DEFAULT_PHOTO_LIMIT),
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=5000)),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=50000)),
             vol.Required(
                 CONF_THUMB_PREFERRED,
                 default=current.get(CONF_THUMB_PREFERRED, DEFAULT_THUMB_PREFERRED),

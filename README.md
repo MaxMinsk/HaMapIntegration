@@ -10,7 +10,7 @@ Custom Home Assistant integration for People Map Plus.
 4. Service `people_map_plus.scan_now` for manual reindex.
 5. REST API:
    - `GET /api/people_map_plus/status`
-   - `GET /api/people_map_plus/photos`
+   - `GET /api/people_map_plus/photos` (`limit=0` means unlimited)
    - `GET /api/people_map_plus/tracks`
    - `GET /api/people_map_plus/photo_proxy?path=...&exp=...&sig=...` (signed file URL)
 

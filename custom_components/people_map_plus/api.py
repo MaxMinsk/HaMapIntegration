@@ -126,8 +126,8 @@ class PeopleMapPlusPhotosView(HomeAssistantView):
         )
         default_limit = _clamp_int(
             options.get(CONF_DEFAULT_PHOTO_LIMIT),
-            minimum=1,
-            maximum=5000,
+            minimum=0,
+            maximum=50000,
             fallback=DEFAULT_DEFAULT_PHOTO_LIMIT,
         )
         thumb_preferred = _to_bool(
@@ -175,12 +175,8 @@ class PeopleMapPlusPhotosView(HomeAssistantView):
                 status=400,
             )
 
-        limit = _clamp_int(
-            request.query.get("limit"),
-            minimum=1,
-            maximum=5000,
-            fallback=default_limit,
-        )
+        limit_raw = request.query.get("limit")
+        limit = _normalize_photo_limit(limit_raw, default_limit)
         with_gps_only = _to_bool(request.query.get("withGps"), fallback=True)
         items = await runtime.repository.async_query_photos(
             root_prefixes=root_prefixes,
@@ -224,6 +220,7 @@ class PeopleMapPlusPhotosView(HomeAssistantView):
                 "fromUtc": from_utc.isoformat(),
                 "toUtc": to_utc.isoformat(),
                 "limit": limit,
+                "isUnlimited": limit is None,
                 "withGps": with_gps_only,
                 "count": len(result_items),
                 "items": result_items,
@@ -487,15 +484,6 @@ def _normalize_roots(raw: Any) -> list[str]:
     return sorted(set(normalized)) or DEFAULT_PHOTO_ROOTS.copy()
 
 
-def _to_media_local_url(media_rel_path: Any) -> str | None:
-    if not isinstance(media_rel_path, str):
-        return None
-    normalized = media_rel_path.strip().replace("\\", "/").strip("/")
-    if not normalized:
-        return None
-    return f"/media/local/{quote(normalized, safe='/')}"
-
-
 def _build_photo_proxy_url(hass: Any, media_rel_path: Any) -> str | None:
     if not isinstance(media_rel_path, str):
         return None
@@ -574,6 +562,22 @@ def _clamp_float(value: Any, minimum: float, maximum: float, fallback: float) ->
     except (TypeError, ValueError):
         parsed = fallback
     return max(minimum, min(maximum, parsed))
+
+
+def _normalize_photo_limit(raw: Any, default_limit: int) -> int | None:
+    if raw is None:
+        parsed = default_limit
+    else:
+        try:
+            parsed = int(raw)
+        except (TypeError, ValueError):
+            parsed = default_limit
+
+    if parsed <= 0:
+        return None
+
+    # Hard guard against accidental huge payloads.
+    return min(parsed, 200000)
 
 
 async def _fetch_history_payload(
