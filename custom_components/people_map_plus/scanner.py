@@ -306,12 +306,9 @@ def _parse_exif_datetime(text: str) -> datetime | None:
 
 
 def _extract_gps(exif: Any) -> tuple[float, float, float | None] | None:
-    tag_map = {ExifTags.TAGS.get(tag, tag): value for tag, value in exif.items()}
-    gps_info = tag_map.get("GPSInfo")
-    if not gps_info:
+    gps_map = _normalize_gps_map(exif)
+    if not gps_map:
         return None
-
-    gps_map = {ExifTags.GPSTAGS.get(tag, tag): value for tag, value in gps_info.items()}
 
     lat_raw = gps_map.get("GPSLatitude")
     lat_ref = _as_text(gps_map.get("GPSLatitudeRef"))
@@ -334,6 +331,42 @@ def _extract_gps(exif: Any) -> tuple[float, float, float | None] | None:
         return None
 
     return lat, lon, alt
+
+
+def _normalize_gps_map(exif: Any) -> dict[str, Any]:
+    gps_tag_id = 34853  # GPSInfo
+    gps_info: Any = None
+
+    # Preferred path for modern Pillow Exif object.
+    get_ifd = getattr(exif, "get_ifd", None)
+    if callable(get_ifd):
+        try:
+            gps_info = get_ifd(gps_tag_id)
+        except Exception:  # noqa: BLE001
+            gps_info = None
+
+    # Fallback path for classic mapping-like EXIF payloads.
+    if gps_info is None:
+        try:
+            tag_map = {ExifTags.TAGS.get(tag, tag): value for tag, value in exif.items()}
+            candidate = tag_map.get("GPSInfo")
+            if isinstance(candidate, dict):
+                gps_info = candidate
+        except Exception:  # noqa: BLE001
+            gps_info = None
+
+    if not isinstance(gps_info, dict):
+        return {}
+
+    normalized: dict[str, Any] = {}
+    for raw_key, raw_value in gps_info.items():
+        if isinstance(raw_key, int):
+            key = str(ExifTags.GPSTAGS.get(raw_key, raw_key))
+        else:
+            key = str(raw_key)
+        normalized[key] = raw_value
+
+    return normalized
 
 
 def _dms_to_decimal(values: Any, ref: str) -> float | None:
