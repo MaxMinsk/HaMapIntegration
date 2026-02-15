@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import hashlib
+import hmac
 import math
 from pathlib import Path
+import secrets
+import time
 from typing import Any
 from urllib.parse import quote, unquote
 
@@ -25,6 +29,9 @@ from .const import (
     DEFAULT_THUMB_PREFERRED,
     DOMAIN,
 )
+
+_PHOTO_PROXY_SECRET_DATA_KEY = "people_map_plus_photo_proxy_secret"
+_PHOTO_PROXY_TTL_SECONDS = 60 * 60
 
 
 class PeopleMapPlusStatusView(HomeAssistantView):
@@ -185,8 +192,8 @@ class PeopleMapPlusPhotosView(HomeAssistantView):
 
         result_items: list[dict[str, Any]] = []
         for item in items:
-            media_url = _to_media_local_url(item.get("media_rel_path"))
-            thumb_url = _to_media_local_url(item.get("thumb_rel_path"))
+            media_url = _build_photo_proxy_url(hass, item.get("media_rel_path"))
+            thumb_url = _build_photo_proxy_url(hass, item.get("thumb_rel_path"))
             preview_url = thumb_url if thumb_preferred and thumb_url else media_url
             result_items.append(
                 {
@@ -367,10 +374,13 @@ class PeopleMapPlusPhotoProxyView(HomeAssistantView):
 
     url = "/api/people_map_plus/photo_proxy"
     name = "api:people_map_plus:photo_proxy"
-    requires_auth = True
+    requires_auth = False
 
     async def get(self, request: web.Request) -> web.StreamResponse:
+        hass = request.app["hass"]
         raw_path = str(request.query.get("path", "")).strip()
+        raw_exp = str(request.query.get("exp", "")).strip()
+        raw_sig = str(request.query.get("sig", "")).strip()
         if not raw_path:
             return web.json_response(
                 {
@@ -379,6 +389,16 @@ class PeopleMapPlusPhotoProxyView(HomeAssistantView):
                     "message": "Query param 'path' is required.",
                 },
                 status=400,
+            )
+
+        if not _is_valid_photo_proxy_signature(hass, raw_path, raw_exp, raw_sig):
+            return web.json_response(
+                {
+                    "success": False,
+                    "status": "unauthorized",
+                    "message": "Invalid or expired photo proxy signature.",
+                },
+                status=401,
             )
 
         normalized = unquote(raw_path).replace("\\", "/").strip("/")
@@ -473,7 +493,59 @@ def _to_media_local_url(media_rel_path: Any) -> str | None:
     normalized = media_rel_path.strip().replace("\\", "/").strip("/")
     if not normalized:
         return None
-    return f"/api/people_map_plus/photo_proxy?path={quote(normalized, safe='/')}"
+    return f"/media/local/{quote(normalized, safe='/')}"
+
+
+def _build_photo_proxy_url(hass: Any, media_rel_path: Any) -> str | None:
+    if not isinstance(media_rel_path, str):
+        return None
+
+    normalized = media_rel_path.strip().replace("\\", "/").strip("/")
+    if not normalized:
+        return None
+
+    exp = int(time.time()) + _PHOTO_PROXY_TTL_SECONDS
+    sig = _build_photo_proxy_signature(hass, normalized, exp)
+    return f"/api/people_map_plus/photo_proxy?path={quote(normalized, safe='/')}&exp={exp}&sig={sig}"
+
+
+def _build_photo_proxy_signature(hass: Any, media_rel_path: str, exp: int) -> str:
+    secret = _get_photo_proxy_secret(hass)
+    payload = f"{media_rel_path}\n{exp}".encode("utf-8")
+    return hmac.new(secret, payload, hashlib.sha256).hexdigest()
+
+
+def _is_valid_photo_proxy_signature(hass: Any, raw_path: str, raw_exp: str, raw_sig: str) -> bool:
+    if not raw_sig or not raw_exp:
+        return False
+
+    try:
+        exp = int(raw_exp)
+    except ValueError:
+        return False
+
+    now = int(time.time())
+    if exp < now:
+        return False
+    if exp > now + (24 * 60 * 60):
+        return False
+
+    normalized = unquote(raw_path).replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+
+    expected = _build_photo_proxy_signature(hass, normalized, exp)
+    return hmac.compare_digest(expected, raw_sig)
+
+
+def _get_photo_proxy_secret(hass: Any) -> bytes:
+    current = hass.data.get(_PHOTO_PROXY_SECRET_DATA_KEY)
+    if isinstance(current, bytes) and current:
+        return current
+
+    generated = secrets.token_bytes(32)
+    hass.data[_PHOTO_PROXY_SECRET_DATA_KEY] = generated
+    return generated
 
 
 def _to_bool(value: Any, fallback: bool) -> bool:
