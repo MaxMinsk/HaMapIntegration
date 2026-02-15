@@ -70,6 +70,23 @@ class PhotoIndexRepository:
         """Count active photos in index."""
         return await self._hass.async_add_executor_job(self._count_active_photos)
 
+    async def async_query_photos(
+        self,
+        root_prefixes: list[str],
+        from_utc: str,
+        to_utc: str,
+        limit: int,
+        with_gps_only: bool,
+    ) -> list[dict[str, Any]]:
+        """Query recent indexed photos."""
+        return await self._hass.async_add_executor_job(
+            self._query_photos, root_prefixes, from_utc, to_utc, limit, with_gps_only
+        )
+
+    async def async_get_scan_state(self, scan_id: str) -> dict[str, Any] | None:
+        """Return latest persisted scan state for scan_id."""
+        return await self._hass.async_add_executor_job(self._get_scan_state, scan_id)
+
     def _initialize(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self._db_path) as conn:
@@ -269,6 +286,98 @@ class PhotoIndexRepository:
                 "SELECT COUNT(1) FROM photos WHERE is_deleted = 0"
             ).fetchone()
         return int(row[0]) if row is not None else 0
+
+    def _query_photos(
+        self,
+        root_prefixes: list[str],
+        from_utc: str,
+        to_utc: str,
+        limit: int,
+        with_gps_only: bool,
+    ) -> list[dict[str, Any]]:
+        base_query = """
+            SELECT
+              media_rel_path,
+              thumb_rel_path,
+              source,
+              file_size_bytes,
+              mtime_utc,
+              width_px,
+              height_px,
+              captured_at_utc,
+              captured_at_source,
+              lat,
+              lon,
+              alt_m,
+              gps_accuracy_m,
+              geohash7,
+              indexed_at_utc,
+              updated_at_utc
+            FROM photos
+            WHERE is_deleted = 0
+              AND captured_at_utc IS NOT NULL
+              AND captured_at_utc >= ?
+              AND captured_at_utc <= ?
+        """
+
+        if with_gps_only:
+            base_query += " AND has_gps = 1 "
+
+        query, root_params = _build_roots_filter_query(base_query, root_prefixes)
+        query += " ORDER BY captured_at_utc DESC LIMIT ?"
+
+        params: tuple[Any, ...] = (from_utc, to_utc, *root_params, limit)
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(query, params).fetchall()
+
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            items.append(
+                {
+                    "media_rel_path": str(row["media_rel_path"]),
+                    "thumb_rel_path": str(row["thumb_rel_path"]) if row["thumb_rel_path"] is not None else None,
+                    "source": str(row["source"]),
+                    "file_size_bytes": int(row["file_size_bytes"]) if row["file_size_bytes"] is not None else None,
+                    "mtime_utc": str(row["mtime_utc"]),
+                    "width_px": int(row["width_px"]) if row["width_px"] is not None else None,
+                    "height_px": int(row["height_px"]) if row["height_px"] is not None else None,
+                    "captured_at_utc": str(row["captured_at_utc"]) if row["captured_at_utc"] is not None else None,
+                    "captured_at_source": str(row["captured_at_source"]) if row["captured_at_source"] is not None else None,
+                    "lat": float(row["lat"]) if row["lat"] is not None else None,
+                    "lon": float(row["lon"]) if row["lon"] is not None else None,
+                    "alt_m": float(row["alt_m"]) if row["alt_m"] is not None else None,
+                    "gps_accuracy_m": float(row["gps_accuracy_m"]) if row["gps_accuracy_m"] is not None else None,
+                    "geohash7": str(row["geohash7"]) if row["geohash7"] is not None else None,
+                    "indexed_at_utc": str(row["indexed_at_utc"]),
+                    "updated_at_utc": str(row["updated_at_utc"]),
+                }
+            )
+
+        return items
+
+    def _get_scan_state(self, scan_id: str) -> dict[str, Any] | None:
+        with sqlite3.connect(self._db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                """
+                SELECT scan_id, last_scan_started_utc, last_scan_finished_utc, last_scan_status, last_error
+                FROM scan_state
+                WHERE scan_id = ?
+                """,
+                (scan_id,),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "scan_id": str(row["scan_id"]),
+            "last_scan_started_utc": str(row["last_scan_started_utc"]) if row["last_scan_started_utc"] is not None else None,
+            "last_scan_finished_utc": str(row["last_scan_finished_utc"]) if row["last_scan_finished_utc"] is not None else None,
+            "last_scan_status": str(row["last_scan_status"]) if row["last_scan_status"] is not None else None,
+            "last_error": str(row["last_error"]) if row["last_error"] is not None else None,
+        }
 
 
 def _build_roots_filter_query(base_query: str, root_prefixes: list[str]) -> tuple[str, tuple[Any, ...]]:

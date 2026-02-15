@@ -8,6 +8,10 @@ Custom Home Assistant integration for People Map Plus.
 2. SQLite index in `/config/.storage/people_map_plus.db`.
 3. Background media scanner for photo metadata (EXIF GPS + capture time).
 4. Service `people_map_plus.scan_now` for manual reindex.
+5. REST API:
+   - `GET /api/people_map_plus/status`
+   - `GET /api/people_map_plus/photos`
+   - `GET /api/people_map_plus/tracks`
 
 ## Install (HACS Custom Repository)
 
@@ -28,5 +32,4 @@ Custom Home Assistant integration for People Map Plus.
 
 ## Development status
 
-This repository currently contains Phase A foundation.
-Next phases: integration REST API (`photos`, `tracks`) and card migration to HA-native API.
+Integration API is now available and intended to be consumed directly from Lovelace card through Home Assistant auth/session.

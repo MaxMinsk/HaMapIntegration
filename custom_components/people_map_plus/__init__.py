@@ -10,6 +10,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, ServiceCall
 
+from .api import (
+    PeopleMapPlusPhotosView,
+    PeopleMapPlusStatusView,
+    PeopleMapPlusTracksView,
+)
 from .const import (
     DB_FILE_NAME,
     DOMAIN,
@@ -36,6 +41,10 @@ PeopleMapConfigEntry: TypeAlias = ConfigEntry[RuntimeData]
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up People Map Plus component."""
     hass.data.setdefault(DOMAIN, {})
+
+    hass.http.register_view(PeopleMapPlusStatusView())
+    hass.http.register_view(PeopleMapPlusPhotosView())
+    hass.http.register_view(PeopleMapPlusTracksView())
 
     if not hass.services.has_service(DOMAIN, SCAN_SERVICE):
         async def _handle_scan_now(service_call: ServiceCall) -> None:
